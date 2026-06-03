@@ -362,7 +362,11 @@ let activeFilter='all';
 /* ── INIT ── */
 async function init(){
   apiKey=localStorage.getItem('crs-apikey')||'';
-  try{const r=await window.storage.get('crs-exp3');if(r&&r.value)expenses=JSON.parse(r.value);}catch(e){expenses=[];}
+  try{
+    const stored=localStorage.getItem('crs-expenses');
+    if(stored)expenses=JSON.parse(stored);
+    else{const r=await window.storage.get('crs-exp3');if(r&&r.value){expenses=JSON.parse(r.value);localStorage.setItem('crs-expenses',JSON.stringify(expenses));}}
+  }catch(e){expenses=[];}
   if(!apiKey){document.getElementById('setup-screen').classList.remove('hidden');}
   else{document.getElementById('setup-screen').classList.add('hidden');}
   updateHeader();
@@ -459,9 +463,9 @@ function createCard(d,imgUrl){
     itemsHtml=`<div class="items-wrap"><div class="items-title">Ítems detectados</div>
     ${d.items.map((it,i)=>`<div class="item-row">
       <input value="${esc(it.producto||'')}" placeholder="Producto" style="flex:1">
-      <input class="qty" type="number" value="${it.cantidad||1}" placeholder="Cant">
-      <input class="price" type="number" value="${it.precio_unitario||0}" placeholder="Precio">
-      <button class="item-del" onclick="this.closest('.item-row').remove()">×</button>
+      <input class="qty" type="number" value="${it.cantidad||1}" placeholder="Cant" oninput="recalcFromItems('${id}')">
+      <input class="price" type="number" value="${it.precio_unitario||0}" placeholder="Precio" oninput="recalcFromItems('${id}')">
+      <button class="item-del" onclick="this.closest('.item-row').remove();recalcFromItems('${id}')">×</button>
     </div>`).join('')}
     <button class="add-item" onclick="addItemRow('items-${id}')">+ Agregar ítem</button>
     </div>`;
@@ -489,9 +493,9 @@ function createCard(d,imgUrl){
       <div class="fld"><label>Categoría</label><select id="f-cat-${id}">${catOpts}</select></div>
     </div>
     <div class="fg fg-3">
+      <div class="fld"><label>Subtotal</label><input type="number" id="f-sub-${id}" value="${d.subtotal||0}" step="0.01" oninput="recalcTotals('${id}')"></div>
+      <div class="fld"><label>IVA (auto)</label><input type="number" id="f-iva-${id}" value="${d.iva||0}" step="0.01" oninput="recalcTotalFromIva('${id}')"></div>
       <div class="fld"><label>Total</label><input type="number" id="f-tot-${id}" value="${d.total||0}" step="0.01" oninput="updateAlloc('${id}')"></div>
-      <div class="fld"><label>Subtotal</label><input type="number" id="f-sub-${id}" value="${d.subtotal||0}" step="0.01"></div>
-      <div class="fld"><label>IVA</label><input type="number" id="f-iva-${id}" value="${d.iva||0}" step="0.01"></div>
     </div>
     <div class="fg fg-2">
       <div class="fld"><label>Proveedor</label><input type="text" id="f-prov-${id}" value="${esc(d.proveedor||'')}"></div>
@@ -533,6 +537,34 @@ function buildAlloc(zona,total,moneda){
     <div class="alloc-grid">${props.map(p=>`<div class="alloc-item"><span class="alloc-prop">${p}</span><span class="alloc-amt">${fmt(pp,moneda)}</span></div>`).join('')}</div></div>`;
 }
 
+function recalcFromItems(id){
+  const rows=document.querySelectorAll(`#items-${id} .item-row`);
+  let sub=0;
+  rows.forEach(r=>{
+    const ins=r.querySelectorAll('input');
+    sub+=(parseFloat(ins[1]?.value)||0)*(parseFloat(ins[2]?.value)||0);
+  });
+  if(sub>0){
+    const subEl=document.getElementById(`f-sub-${id}`);
+    if(subEl){subEl.value=Math.round(sub);recalcTotals(id);}
+  }
+}
+function recalcTotals(id){
+  const sub=parseFloat(document.getElementById(`f-sub-${id}`)?.value)||0;
+  const ivaRate=0.13;
+  const iva=Math.round(sub*ivaRate);
+  const tot=sub+iva;
+  const ivaEl=document.getElementById(`f-iva-${id}`);
+  const totEl=document.getElementById(`f-tot-${id}`);
+  if(ivaEl)ivaEl.value=iva;
+  if(totEl){totEl.value=tot;updateAlloc(id);}
+}
+function recalcTotalFromIva(id){
+  const sub=parseFloat(document.getElementById(`f-sub-${id}`)?.value)||0;
+  const iva=parseFloat(document.getElementById(`f-iva-${id}`)?.value)||0;
+  const totEl=document.getElementById(`f-tot-${id}`);
+  if(totEl){totEl.value=Math.round(sub+iva);updateAlloc(id);}
+}
 function updateAlloc(id){
   const zona=document.getElementById(`f-zona-${id}`)?.value||'';
   const total=parseFloat(document.getElementById(`f-tot-${id}`)?.value)||0;
@@ -567,7 +599,8 @@ function addItemRow(containerId){
   const btn=wrap.querySelector('.add-item');
   const row=document.createElement('div');
   row.className='item-row';
-  row.innerHTML=`<input value="" placeholder="Producto" style="flex:1"><input class="qty" type="number" value="1" placeholder="Cant"><input class="price" type="number" value="0" placeholder="Precio"><button class="item-del" onclick="this.closest('.item-row').remove()">×</button>`;
+  const cardId=containerId.replace('items-','');
+  row.innerHTML=`<input value="" placeholder="Producto" style="flex:1"><input class="qty" type="number" value="1" placeholder="Cant" oninput="recalcFromItems('${cardId}')"><input class="price" type="number" value="0" placeholder="Precio" oninput="recalcFromItems('${cardId}')"><button class="item-del" onclick="this.closest('.item-row').remove();recalcFromItems('${cardId}')">×</button>`;
   wrap.insertBefore(row,btn);
 }
 
@@ -600,6 +633,7 @@ async function saveExp(id){
     else{const p=document.getElementById(`f-prop-${id}`)?.value;if(p)props=[p];}
   }
   expenses.push({id:'e'+Date.now()+Math.floor(Math.random()*999999),tipo,fecha,proveedor,categoria,total,subtotal,iva,moneda,notas,zona,propiedades:props,items,created:new Date().toISOString()});
+  localStorage.setItem('crs-expenses',JSON.stringify(expenses));
   try{await window.storage.set('crs-exp3',JSON.stringify(expenses));}catch(e){}
   discardCard(id);
   updateHeader();
@@ -630,14 +664,37 @@ function renderList(){
         <div class="exp-amt" style="color:${e.tipo==='negocio'?'var(--teal)':'var(--purple)'}">${fmt(e.total,e.moneda)}</div>
         <div class="exp-date">${e.fecha}</div>
       </div>
+      <button class="exp-del" onclick="editExp('${e.id}')" style="color:var(--teal);font-size:16px">✏️</button>
       <button class="exp-del" onclick="delExp('${e.id}')">×</button>
     </div>`).join('');
 }
 
 async function delExp(id){
   expenses=expenses.filter(e=>e.id!==id);
+  localStorage.setItem('crs-expenses',JSON.stringify(expenses));
   try{await window.storage.set('crs-exp3',JSON.stringify(expenses));}catch(e){}
   updateHeader();renderList();toast('Eliminado');
+}
+
+function editExp(id){
+  const e=expenses.find(x=>x.id===id);
+  if(!e)return;
+  // Remove from list temporarily
+  expenses=expenses.filter(x=>x.id!==id);
+  localStorage.setItem('crs-expenses',JSON.stringify(expenses));
+  // Switch to capture tab
+  document.querySelectorAll('.bnav-item').forEach(x=>x.classList.remove('on'));
+  document.querySelectorAll('.panel').forEach(x=>x.classList.remove('on'));
+  document.querySelector('[data-tab="capture"]').classList.add('on');
+  document.getElementById('panel-capture').classList.add('on');
+  // Rebuild as editable card
+  createCard({
+    fecha:e.fecha,proveedor:e.proveedor,total:e.total,subtotal:e.subtotal,iva:e.iva,
+    moneda:e.moneda,categoria_sugerida:e.categoria,tipo_sugerido:e.tipo,
+    zona_sugerida:e.zona||'especifica',descripcion:e.notas,items:e.items||[]
+  },null);
+  updateHeader();renderList();
+  toast('Editando — guardá cuando termines','ok');
 }
 
 /* ── SUMMARY ── */
