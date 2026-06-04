@@ -107,6 +107,16 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--dark);fon
   transition:border-color .2s;-webkit-appearance:none;
 }
 .gallery-btn:active{border-color:var(--teal)}
+.manual-btn{
+  display:flex;align-items:center;justify-content:center;gap:8px;
+  width:100%;padding:13px 16px;border-radius:var(--r);
+  border:1.5px dashed var(--border);background:var(--white);
+  color:var(--mid);font-size:14px;font-weight:500;cursor:pointer;
+  font-family:'DM Sans',sans-serif;margin-bottom:16px;
+  transition:all .15s;-webkit-appearance:none;flex-direction:column;gap:2px;
+}
+.manual-btn:active{border-color:var(--teal);color:var(--teal)}
+.manual-sub{font-size:11px;color:var(--muted);font-weight:400}
 
 /* PROCESSING STATE */
 .processing{
@@ -286,6 +296,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--dark);fon
     <input type="file" accept="image/*" style="display:none" onchange="handleFile(this.files[0])">
   </label>
 
+  <!-- Manual entry button -->
+  <button class="manual-btn" onclick="openManual()">
+    <span>✏️</span>
+    <span>Ingreso manual</span>
+    <span class="manual-sub">efectivo · jornales · informales</span>
+  </button>
+
   <!-- Processing state -->
   <div class="processing" id="processing">
     <img id="proc-preview" class="proc-preview" src="" alt="preview">
@@ -449,7 +466,7 @@ async function extractWithClaude(b64,mimeType){
 }
 
 /* ── CREATE CARD ── */
-function createCard(d,imgUrl){
+function createCard(d,imgUrl,isManual=false){
   const id='c'+Date.now()+Math.floor(Math.random()*999999);
   const isBiz=d.tipo_sugerido!=='personal';
   const isSJ=d.zona_sugerida==='San José';
@@ -478,7 +495,7 @@ function createCard(d,imgUrl){
       ${imgUrl?`<img src="${imgUrl}" class="img-thumb" alt="">`:''}
       <div>
         <div class="e-provider">${esc(d.proveedor||'Recibo')}</div>
-        <span class="badge badge-review" style="margin-top:4px;display:inline-block">REVISAR</span>
+        <span class="badge badge-review" style="margin-top:4px;display:inline-block">${isManual?'MANUAL':'REVISAR'}</span>
       </div>
     </div>
     <div style="font-family:'DM Mono',monospace;font-size:16px;font-weight:600;color:${isBiz?'var(--teal)':'var(--purple)'}">${fmt(d.total||0,d.moneda)}</div>
@@ -525,6 +542,13 @@ function createCard(d,imgUrl){
     <button class="btn btn-danger" onclick="discardCard('${id}')">Descartar</button>
     <button class="btn btn-primary" onclick="saveExp('${id}')">✓ Guardar</button>
   </div>`;
+  // For manual entry, always show items section
+  if(isManual){
+    const itemsContainer=div.querySelector(`#items-${id}`);
+    if(itemsContainer&&!itemsContainer.querySelector('.items-wrap')){
+      itemsContainer.innerHTML=`<div class="items-wrap"><div class="items-title">Ítems (opcional)</div><button class="add-item" onclick="addItemRow('items-${id}')">+ Agregar ítem</button></div>`;
+    }
+  }
   document.getElementById('pending-area').prepend(div);
   div.scrollIntoView({behavior:'smooth',block:'start'});
 }
@@ -535,6 +559,15 @@ function buildAlloc(zona,total,moneda){
   const pp=total/props.length;
   return `<div class="alloc"><div class="alloc-title">Distribución · ${props.length} propiedades · ${fmt(pp,moneda)} c/u</div>
     <div class="alloc-grid">${props.map(p=>`<div class="alloc-item"><span class="alloc-prop">${p}</span><span class="alloc-amt">${fmt(pp,moneda)}</span></div>`).join('')}</div></div>`;
+}
+
+function openManual(){
+  const d={
+    fecha:today(),proveedor:'',total:0,subtotal:0,iva:0,
+    moneda:'CRC',categoria_sugerida:'',tipo_sugerido:'negocio',
+    zona_sugerida:'especifica',descripcion:'',items:[]
+  };
+  createCard(d,null,true);
 }
 
 function recalcFromItems(id){
